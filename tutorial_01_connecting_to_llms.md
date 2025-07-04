@@ -132,11 +132,6 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
 model="gemini-2.0-flash"
 
-response = client.models.generate_content(
-    model=model,
-    contents=user_prompt)
-print(response.text)
-
 # First turn
 prompt1 = "What is the capital of Japan?"
 print(f"User: {prompt1}")
