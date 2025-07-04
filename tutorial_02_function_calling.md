@@ -128,7 +128,7 @@ available_functions = {
 }
 ```
 
-### 2. Make the API Call
+### 2. Make the API Call and Handle the Model's Response
 
 Now, we'll make a call to the OpenAI API, providing the user's prompt and our tool definition.
 
@@ -144,7 +144,8 @@ import json
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 model = "gpt-4o"
 
-messages = [{"role": "user", "content": "What's the weather like in San Jose, CA?"}]
+user_msg = "What's the weather like in San Jose, CA?"
+messages = [{"role": "user", "content": user_msg}]
 
 response = client.chat.completions.create(
     model=model,
@@ -152,17 +153,18 @@ response = client.chat.completions.create(
     tools=tools,
     tool_choice="auto",  # auto is default, but we'll be explicit
 )
+response_message = response.choices[0].message
+if response_message.tool_calls:
+    # ... tool calling logic here ...
 ```
-
-### 3. Handle the Model's Response & Execute the Function(s)
-
 The model's response will indicate if it wants to call a tool. If so, it will include a `tool_calls` object in the response. The `tool_calls` object will contain the name of the tool(s) to call and the arguments to use.
+
+### 3. Execute the Function(s)
 
 It is standard practice to loop through `response_message.tool_calls`, because modern LLMs can request multiple tool calls in a single turn (a concept known as parallel tool calling). By iterating through the list, you can execute each requested tool and append its result to your messages list, preparing a complete context for the final step.
 
 ```python
-response_message = response.choices[0].message
-if response_message.tool_calls:
+# ... (inside the if block) ...
     messages.append(response_message)  # extend conversation with the LLM's reply
 
     for tool_call in response_message.tool_calls: # Loop through all requested tool calls
@@ -194,26 +196,99 @@ Finally, we'll send the function's result back to the model to get a final, natu
 
 ## Implementing Function Calling with Google Gemini
 
-Google Gemini also supports function calling, but with a slightly different API design. Instead of a JSON schema, you can pass the Python function object directly to the model.
+While OpenAI's tool calling requires you to be explicit and responsible for providing a JSON object that strictly defines the function's name, description, and parameters, the Google Gemini Python SDK gives you the option to simplify this by doing the work for you. 
+Instead of a JSON schema, you can pass the actual Python function object directly to the model, and the library then **infers** the schema from your code. 
 
-### 1. Make the API Call
+### 1. Define the Tool:
+The Gemini SDK's ability to accept a function object is a high-level convenience wrapper. Under the hood, the SDK converts the function into a JSON schema before sending it to the Gemini API. In other words, it purely relies on the function's signature and docstring, thus we need to adopt type hints (also known as type annotations) in the function declaration and docstrings.
+
+```python
+def get_current_weather(location: str, unit: str = "fahrenheit") -> str:
+    """
+    Get the current weather in a given location.
+
+    Args:
+        location (str): The city and state, e.g., "San Francisco, CA".
+        unit (str): The unit of temperature, either "celsius" or "fahrenheit".
+
+    Returns:
+        str: A JSON string with the weather information.
+    """
+    print(f"Calling weather tool for {location} in {unit}...")
+    weather_info = {
+        "location": location,
+        "temperature": "85",
+        "unit": unit,
+        "forecast": ["sunny", "windy"],
+    }
+    return json.dumps(weather_info)
+```
+An advantage of this is that we now keep our function definition and the schema seen by the model automatically in sync. Later when you pass the `get_current_weather ` function object to the model, the SDK would extract the following:
+   1. `name`: It takes the function's name: "get_current_weather".
+   2. `description`: It takes the function's docstring: "Get the current weather in a given location.". This is why clear docstrings are critical when using this method.
+   3. `parameters`: It inspects the function's arguments and type hints (location: str, unit: str) to build the parameter schema. It also recognizes default values.
+
+You can bypass the automatic conversion and provide the schema explicitly if you need more control or are not using Python. This is done by constructing a `Tool` object. This approach is more verbose but is functionally equivalent to how OpenAI and others work.
+```python
+import google.genai as genai
+from google.genai import types
+
+# Define function schema explicitly in the FunctionDeclaration object
+weather_function_declaration = types.FunctionDeclaration(
+    name="get_current_weather",
+    description="Get the current weather in a given location",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "location": types.Schema(
+                type=types.Type.STRING,
+                description="The city and state, e.g. San Francisco, CA"
+            ),
+            "unit": types.Schema(
+                type=types.Type.STRING,
+                enum=["celsius", "fahrenheit"]
+            )
+        },
+        required=["location"]
+    )
+)
+# Create Tool object
+weather_tool = types.Tool(
+    function_declarations=[weather_function_declaration]
+)
+
+## Then later you would pass this to the LLM with generate_content, assuming the client is established.
+```
+
+### 2. Make the API Call and Handle the Model's Response
 
 ```python
 import os
 from google import genai
+from google.genai import types
 
 # Load API key from environment
-# genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+load_dotenv()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    tools=[get_current_weather],  # Pass the function directly
+client = genai.Client(api_key=GEMINI_API_KEY)
+model="gemini-2.0-flash"
+
+user_msg = "What's the weather like in San Jose, CA?"
+response = client.models.generate_content(
+    model=model,
+    contents=user_msg,
+    # tools=[get_current_weather] ## direct function reference
 )
-
-response = model.generate_content("What's the weather like in Boston?")
 ```
-
-### 2. Handle the Model's Response
+If you have created a `Tool` object explicitly (and verbosely), we can also pass it into `generate_content`:
+```python
+response = client.models.generate_content(
+    model=model,
+    contents=user_msg,
+    tools=[weather_tool] ## types.Tool objects
+)
+```
 
 Gemini's response will contain a `function_call` object if it determines a tool should be used.
 
@@ -229,24 +304,28 @@ if response_message.parts[0].function_call:
 The process of executing the function and returning the result to the model is similar to OpenAI's.
 
 ```python
-if function_call.name == "get_current_weather":
-    function_response = get_current_weather(
-        location=function_call.args["location"],
-        unit=function_call.args.get("unit", "fahrenheit"),
-    )
-
-    response = model.generate_content(
-        [
-            response_message, # Include previous message
-            {
-                "tool_response": {
-                    "name": "get_current_weather",
-                    "response": json.loads(function_response),
-                }
-            },
-        ]
-    )
-    print(response.text)
+# ... (inside the if block) ...
+    if function_call.name == "get_current_weather":
+        ## Execute actual function
+        function_result = get_current_weather(
+            location=function_call.args["location"],
+            unit=function_call.args.get("unit", "fahrenheit"),
+        )
+        ## Continue the conversation with the result
+        response = model.generate_content(
+            model=model,
+            content=[
+                user_msg,
+                response_message, # Include previous messages
+                {
+                    "tool_response": {
+                        "name": "get_current_weather",
+                        "response": json.loads(function_result),
+                    }
+                },
+            ],
+        )
+        print(response.text)
 ```
 
 ## Implementing Function Calling with Anthropic Claude
