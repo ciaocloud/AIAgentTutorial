@@ -278,17 +278,27 @@ user_msg = "What's the weather like in San Jose, CA?"
 response = client.models.generate_content(
     model=model,
     contents=user_msg,
-    # tools=[get_current_weather] ## direct function reference
+    config={
+        "tools": [get_current_weather], ## direct function reference
+        "automatic_function_calling": {"disable": True},
+    }
 )
 ```
-If you have created a `Tool` object explicitly (and verbosely), we can also pass it into `generate_content`:
+Note the Python SDK has a powerful feature called **Automatic Function Execution**. When enabled (which is by default), the model will execute the corresponding function in the provided tools and return only the model's final response (usually text) to the user. Thus here we explicitly set `automatic_function_calling` to be disabled and perform manual function calling.
+
+If you have created a `Tool` object explicitly (and verbosely), we can also pass it into `generate_content`.  Note that the automatic tool calling feature is disabled by passing the Tool objects. 
+
 ```python
 response = client.models.generate_content(
     model=model,
     contents=user_msg,
-    tools=[weather_tool] ## types.Tool objects
+    config=types.GenerateContentConfig(
+        tools=[weather_tool], ## types.Tool objects
+    )
 )
 ```
+
+In other words, you have two ways to disable the automatic function execution feature, most likely because you want to have more control, either by setting `"automatic_function_calling": {"disable": True}` in the content config, or by passing `Tool` objects to it.
 
 Gemini's response will contain a `function_call` object if it determines a tool should be used.
 
@@ -327,6 +337,47 @@ The process of executing the function and returning the result to the model is s
         )
         print(response.text)
 ```
+
+#### Examining Function Calls and Execution History
+```python
+chat = client.chats.create(
+    model=model,
+    config=types.GenerateContentConfig(
+        tools=[get_current_weather],
+    )
+)
+response = chat.send_message(user_msg)
+## Access the full conversation history
+for i, event in enumerate(chat.get_history()):
+    print(f"Round {i+1}: {event.role}")
+    for part in event.parts:
+        if hasattr(part, "text") and part.text:
+            print(f"\tText: {part.text}")
+        if hasattr(part, "function_call") and part.function_call:
+            print(f"\tFunction Call: {part.function_call}")
+            # print(f"\tFunction Call: {part.function_call.name}")
+            # print(f"\tArguments: {part.function_call.args}")
+        if hasattr(part, "function_response") and part.function_response:
+            print(f"\tFunction Response: {part.function_response}")
+            # print(f"\tFunction Response: {part.function_response.name}")
+            # print(f"\tResult: {part.function_response.response}")
+```
+And we obtain the history:
+```
+Round 1: user
+	Text: What's the weather like in San Jose, CA? Should I take an umbrella with me?
+Round 2: model
+	Function Call: id=None args={'location': 'San Jose, CA'} name='get_current_weather'
+Round 3: user
+	Function Response: will_continue=None scheduling=None id=None name='get_current_weather' response={'result': '{"location": "San Jose, CA", "temperature": "72", "unit": "fahrenheit", "forecast": ["sunny", "windy"]}'}
+Round 4: model
+	Text: The weather in San Jose, CA is 72 degrees Fahrenheit and sunny and windy. You probably don't need an umbrella.
+```
+This history shows the flow:
+1. User: Sends the message.
+2. Model: Responds not with text, but with a FunctionCall request.
+3. User (SDK): The chat session automatically executes the function because automatic_function_calling is enabled. It sends the result back as a FunctionResponse.
+4. Model: Uses the function's result to formulate the final text response.
 
 ## Implementing Function Calling with Anthropic Claude
 
