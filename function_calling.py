@@ -25,19 +25,19 @@ def get_current_weather(location: str, unit: str = "fahrenheit") -> str:
     print(f"Calling weather tool for {location} in {unit}...")
     weather_info = {
         "location": location,
-        "temperature": "72",
+        "temperature": "85",
         "unit": unit,
         "forecast": ["sunny", "windy"],
     }
     return json.dumps(weather_info)
 
-# --- Main Demonstration Function ---
-def main():
-    """
-    Demonstrates function calling with OpenAI, Gemini, Anthropic, and Ollama.
-    """
-    user_prompt = "What's the weather like in Boston?"
-    print(f"User Prompt: {user_prompt}\n")
+# # --- Main Demonstration Function ---
+# def main():
+#     """
+#     Demonstrates function calling with OpenAI, Gemini, Anthropic, and Ollama.
+#     """
+#     user_prompt = "What's the weather like in Boston?"
+#     print(f"User Prompt: {user_prompt}\n")
 
 # --- 2. OpenAI Function Calling ---
 def run_openai_tool_call(prompt: str):

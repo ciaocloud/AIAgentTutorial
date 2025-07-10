@@ -20,7 +20,7 @@ In this guide, we will write a Python script from scratch that can connect to ma
     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
     ```
 
-4.  **(Local) Ollama**: For running local models, install [Ollama](https://ollama.com/) and pull a model (e.g., `ollama pull llama3`).
+4.  **(Local) Ollama**: For running local models, install [Ollama](https://ollama.com/) and pull a model (e.g., `ollama pull gemma3`).
 
 ## Step 1: Project Setup
 
@@ -104,6 +104,26 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
+Note this is equivalent to:
+```shell
+curl https://api.openai.com/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+    "model": $MODEL,
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant."
+      },
+      {
+        "role": "user",
+        "content": $PROMPT
+      }
+    ]
+  }'
+```
+
 ### Connecting to Google Gemini
 
 The Google Gemini library offers two primary ways to interact with the model, each suited for different use cases: `generate_content` for single, stateless requests, and `chat` for stateful, multi-turn conversations. In a high level, think of `generate_content()` as a stateless calculator. You give it an input, and it will respond with an output to you. It has no memory of your previous calculation. It's a simple, one-off transaction.
@@ -147,6 +167,25 @@ response = client.models.generate_content(
     model=model,
     contents=prompt2)
 print(f"Assistant: {response2.text}\n")
+```
+
+Note this is equivalent to:
+```shell
+curl "https://generativelanguage.googleapis.com/v1beta/models/$MODEL" \
+  -H "x-goog-api-key: $GEMINI_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -X POST \
+  -d '{
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": $PROMPT
+          }
+        ]
+      }
+    ]
+  }'
 ```
 
 #### `chat.send_message` (For Conversations)
@@ -215,6 +254,24 @@ response = client.messages.create(
 print(response.content[0].text)
 ```
 
+Note this is equivalent to:
+```shell
+curl https://api.anthropic.com/v1/messages \
+  -H "x-api-key: $ANTHROPIC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-sonnet-20240229",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": $PROMPT
+      }
+    ]
+  }'
+```
+
 ### Connecting to a Local Ollama Model
 
 Finally, let's connect to a local model running via Ollama. 
@@ -267,6 +324,17 @@ response.raise_for_status() # Raise an exception for bad status codes
 print(response.json()["message"]["content"])
 ```
 
+
+#### How Ollama Manages Models and Resources
+
+It's important to understand how `ollama` handles your models to manage your computer's resources (especially RAM) efficiently.
+
+When you run `ollama serve` or `ollama start`, it starts a single API server that listens on a single port (the default port is `11434` for `ollama`), then all of your pulled models are available through this endpoint. You don't need to run different servers or use different ports for different models.
+You select which model to use by specifying it in the `"model"` field of your JSON request body when you send an API request to the Ollama server (e.g., to the `/api/generate` or `/api/chat` endpoint), as shown in the examples above. 
+
+However, ollama absolutely **does not** load all of your pulled models into memory.  That would be extremely inefficient and would quickly exhaust your system's RAM. Instead, it uses a "lazy loading" approach. A model is only loaded into RAM and/or VRAM **on demand**, i.e., when the ollama server receives an API request, it finds the specified model on the disk, and only then loads its weights into your RAM/VRAM.
+To make subsequent requests fast, Ollama keeps the model in memory for a default `keep-alive` period (e.g., 5 minutes). If another request for that same model arrives within this window, the response is quick because the model is already loaded.
+If no new requests for that model are received within the `keep-alive` window, or upon receiving an API request to use another model on demand, Ollama automatically unloads the previous model from memory, freeing up your system's resources.
 
 
 ## Step 3: Wrapping in Functions and Putting Everything Together (`llm_client.py`)

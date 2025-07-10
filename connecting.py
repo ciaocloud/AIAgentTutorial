@@ -2,8 +2,9 @@ import os
 import json
 import requests
 import openai
-import google.generativeai as genai
+from google import genai
 import anthropic
+import ollama
 from dotenv import load_dotenv
 
 # Load API keys from .env file
@@ -26,12 +27,20 @@ def run_llm_call(prompt: str, provider: str, model: str):
     print(f"--- Calling Provider: {provider.upper()}, Model: {model} ---")
     try:
         if provider == "openai":
+            if not model:
+                model = "gpt-4o"
             return _call_openai(prompt, model)
         elif provider == "gemini":
+            if not model:
+                model = "gemini-2.5-flash"
             return _call_gemini(prompt, model)
         elif provider == "anthropic":
+            if not model:
+                model = "claude-3-sonnet-20240229"
             return _call_anthropic(prompt, model)
         elif provider == "ollama":
+            if not model:
+                model = "gemma:1b"
             return _call_ollama(prompt, model)
         else:
             raise ValueError(f"Unsupported provider: {provider}")
@@ -49,11 +58,69 @@ def _call_openai(prompt, model):
     )
     return response.choices[0].message.content
 
+def _call_openai_request(prompt, model):
+    """
+curl https://api.openai.com/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+    "model": $MODEL,
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant."
+      },
+      {
+        "role": "user",
+        "content": $PROMPT
+      }
+    ]
+  }'
+    """
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {os.environ.get("OPENAI_API_KEY")}",
+        "Content-Type": "application/json"
+    }
+    messages = [{"role": "user", "content": prompt}]
+    payload = {
+        "model": model,
+        "messages": messages
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()['choices'][0]['message']['content']
+
 def _call_gemini(prompt, model):
-    genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-    client = genai.GenerativeModel(model_name=model)
-    response = client.generate_content(prompt)
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+    )
     return response.text
+
+def _call_gemini_request(prompt, model):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent" 
+    headers = {
+        "x-goog-api-key": os.environ.get("GEMINI_API_KEY"),
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": prompt
+                    }
+                ]
+            }
+        ]
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+# print(_call_gemini_request("what is the capital of japan?", "gemini-2.5-flash"))
+
 
 def _call_anthropic(prompt, model):
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
@@ -63,6 +130,26 @@ def _call_anthropic(prompt, model):
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text
+
+def _call_anthropic_request(prompt, model):
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        "x-api-key": api_key,
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01"  # Required API version header
+    }
+    
+    data = {
+        "model": model,
+        "max_tokens": 1024, ## also required
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    
+    response = requests.post(url, headers=headers, json=data)
+    response.raise_for_status()
+    
+    return response.json()["content"][0]["text"]
 
 def _call_ollama(prompt, model):
     # Assumes Ollama is running on http://localhost:11434
@@ -77,7 +164,27 @@ def _call_ollama(prompt, model):
     response.raise_for_status()
     return response.json()["message"]["content"]
 
-# --- Demonstration ---
+def _call_ollama(prompt, model):
+    response = ollama.chat(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        stream=False
+    )
+    return response['message']['content']
+
+def _call_ollama_request(prompt, model):
+    # Assumes Ollama is running on http://localhost:11434
+    response = requests.post(
+        "http://localhost:11434/api/chat",
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False, # Ensure a single response object
+        },
+    )
+    response.raise_for_status()
+    return response.json()["message"]["content"]
+
 if __name__ == "__main__":
     test_prompt = "What is the speed of light?"
 
