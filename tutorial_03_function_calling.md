@@ -537,4 +537,4 @@ This allows you to write cleaner, provider-agnostic code and easily switch betwe
 
 ## Next Steps
 
-In the next tutorial, we'll explore how to handle multiple function calls in a single turn, and how to build more complex, multi-step agents.
+In the next tutorial, we'll explore how to handle multiple function calls in a single turn, and how to build more complex, multi-step agents. We will also delve deeper into Model-Context-Protocols (MCPs) and how they can simplify working with diverse LLM providers by providing a unified way to define and manage tools.

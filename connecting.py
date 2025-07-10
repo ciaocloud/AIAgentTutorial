@@ -59,24 +59,6 @@ def _call_openai(prompt, model):
     return response.choices[0].message.content
 
 def _call_openai_request(prompt, model):
-    """
-curl https://api.openai.com/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $OPENAI_API_KEY" \
-  -d '{
-    "model": $MODEL,
-    "messages": [
-      {
-        "role": "system",
-        "content": "You are a helpful assistant."
-      },
-      {
-        "role": "user",
-        "content": $PROMPT
-      }
-    ]
-  }'
-    """
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {os.environ.get("OPENAI_API_KEY")}",
