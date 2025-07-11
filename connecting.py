@@ -36,11 +36,11 @@ def run_llm_call(prompt: str, provider: str, model: str):
             return _call_gemini(prompt, model)
         elif provider == "anthropic":
             if not model:
-                model = "claude-3-sonnet-20240229"
+                model = "claude-3-5-sonnet-20241022"
             return _call_anthropic(prompt, model)
         elif provider == "ollama":
             if not model:
-                model = "gemma:1b"
+                model = "gemma3:1b"
             return _call_ollama(prompt, model)
         else:
             raise ValueError(f"Unsupported provider: {provider}")
@@ -58,7 +58,7 @@ def _call_openai(prompt, model):
     )
     return response.choices[0].message.content
 
-def _call_openai_request(prompt, model):
+def _call_openai_rest(prompt, model):
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {os.environ.get("OPENAI_API_KEY")}",
@@ -80,7 +80,7 @@ def _call_gemini(prompt, model):
     )
     return response.text
 
-def _call_gemini_request(prompt, model):
+def _call_gemini_rest(prompt, model):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent" 
     headers = {
         "x-goog-api-key": os.environ.get("GEMINI_API_KEY"),
@@ -113,7 +113,7 @@ def _call_anthropic(prompt, model):
     )
     return response.content[0].text
 
-def _call_anthropic_request(prompt, model):
+def _call_anthropic_rest(prompt, model):
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     url = "https://api.anthropic.com/v1/messages"
     headers = {
@@ -134,19 +134,6 @@ def _call_anthropic_request(prompt, model):
     return response.json()["content"][0]["text"]
 
 def _call_ollama(prompt, model):
-    # Assumes Ollama is running on http://localhost:11434
-    response = requests.post(
-        "http://localhost:11434/api/chat",
-        json={
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": False, # Ensure a single response object
-        },
-    )
-    response.raise_for_status()
-    return response.json()["message"]["content"]
-
-def _call_ollama(prompt, model):
     response = ollama.chat(
         model=model,
         messages=[{"role": "user", "content": prompt}],
@@ -154,7 +141,7 @@ def _call_ollama(prompt, model):
     )
     return response['message']['content']
 
-def _call_ollama_request(prompt, model):
+def _call_ollama_rest(prompt, model):
     # Assumes Ollama is running on http://localhost:11434
     response = requests.post(
         "http://localhost:11434/api/chat",
@@ -175,13 +162,13 @@ if __name__ == "__main__":
     print(f"Response: {openai_response}\n")
 
     # Gemini
-    gemini_response = run_llm_call(test_prompt, "gemini", "gemini-1.5-flash")
+    gemini_response = run_llm_call(test_prompt, "gemini", "gemini-2.5-flash")
     print(f"Response: {gemini_response}\n")
 
     # Anthropic
-    anthropic_response = run_llm_call(test_prompt, "anthropic", "claude-3-sonnet-20240229")
+    anthropic_response = run_llm_call(test_prompt, "anthropic", "claude-3-5-sonnet-20241022")
     print(f"Response: {anthropic_response}\n")
 
     # Ollama (make sure Ollama is running and you have the model)
-    ollama_response = run_llm_call(test_prompt, "ollama", "llama3")
+    ollama_response = run_llm_call(test_prompt, "ollama", "gemma3:1b")
     print(f"Response: {ollama_response}\n")

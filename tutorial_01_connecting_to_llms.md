@@ -67,13 +67,13 @@ Let's set up our project directory and environment from scratch. Open your termi
 
 With the project structure and environment in place, we are ready to start writing the Python client.
 
-## Step 2: Writing the Code Connecting to LLM APIs (`llm_client.py`)
+## Step 2: Writing the Code Connecting to LLM APIs (`connecting.py`)
 
 Now, let's build our Python script piece by piece. 
 
 ### Connecting to OpenAI
 
-Let's write some code in Python to connect to the OpenAI API. 
+Let's write some code in Python to connect to the OpenAI API using the `openai` SDK. 
 
 **How it works:**
 1.  We instantiate the `OpenAI` client, which takes the `OPENAI_API_KEY` environment variable as the `api_key` argument.
@@ -84,6 +84,7 @@ Let's write some code in Python to connect to the OpenAI API.
 ```python
 import os
 import openai
+from dotenv import load_dotenv
 
 load_dotenv()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -104,7 +105,38 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-Note this is equivalent to:
+Note we can achieve the above without using the `openai` library, but directely send request to the REST API:
+```python
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+url = "https://api.openai.com/v1/chat/completions"
+headers = {
+    "Authorization": f"Bearer {OPENAI_API_KEY}",
+    "Content-Type": "application/json"
+}
+
+system_message = "You are a helpful assistant."
+user_prompt = "What is the speed of light in a vacuum?"
+messages = [
+    {"role": "system", "content": system_message},
+    {"role": "user", "content": user_prompt}
+]
+model = "gpt-4o"
+
+payload = {
+    "model": model,
+    "messages": messages
+}
+response = requests.post(url, headers=headers, json=payload)
+print(response.json()['choices'][0]['message']['content'])
+```
+
+And this is equivalent to the following curl request in shell:
 ```shell
 curl https://api.openai.com/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -129,7 +161,7 @@ curl https://api.openai.com/v1/chat/completions \
 The Google Gemini library offers two primary ways to interact with the model, each suited for different use cases: `generate_content` for single, stateless requests, and `chat` for stateful, multi-turn conversations. In a high level, think of `generate_content()` as a stateless calculator. You give it an input, and it will respond with an output to you. It has no memory of your previous calculation. It's a simple, one-off transaction.
 On the other hand, think of `chat()` as a stateful conversation with a person. You start a chat, and that person (the chat object) remembers everything you've both said. You only need to provide your new message, and they handle the context.
 
-#### `model.generate_content` (For Single Turns)
+#### Method 1: `model.generate_content` (For Single Turns)
 
 This is the simplest way to interact with the model. It is stateless.
    * What it is: A direct, one-shot call to the model. You can pass a simple string directly to the function. The model has no memory of any previous calls you made.
@@ -146,11 +178,12 @@ This is the simplest way to interact with the model. It is stateless.
 ```python
 import os
 from google import genai
+from dotenv import load_dotenv
 
 load_dotenv()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
-model="gemini-2.0-flash"
+model="gemini-2.5-flash"
 
 # First turn
 prompt1 = "What is the capital of Japan?"
@@ -163,13 +196,51 @@ print(f"Assistant: {response1.text}\n")
 # Second turn
 prompt2 = "What is the main airport there?"
 print(f"User: {prompt2}")
-response = client.models.generate_content(
+response2 = client.models.generate_content(
     model=model,
     contents=prompt2)
 print(f"Assistant: {response2.text}\n")
 ```
+Below is the output we obtained. Clearly for the second question, the LLM doesn't have the context of our first conversation thus doesn't know how to answer it. 
+```markdown
+User: What is the capital of Japan?
+Assistant: The capital of Japan is **Tokyo**.
 
-Note this is equivalent to:
+User: What is the main airport there?
+Assistant: To tell you the main airport, I need a little more context! Where is "there" referring to? Please tell me the city, country, or region you're interested in, and I'll be happy to provide the main airport.
+```
+
+Note we can achieve the above without using the `genai` library, but directely send request to the REST API:
+```python
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+model="gemini-2.5-flash"
+
+url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent" 
+headers = {
+    "x-goog-api-key": os.environ.get("GEMINI_API_KEY"),
+    "Content-Type": "application/json"
+}
+prompt = "What is the capital of Japan?"
+payload = {
+    "contents": [
+        {
+            "parts": [
+                {
+                    "text": prompt
+                }
+            ]
+        }
+    ]
+}
+response = requests.post(url, headers=headers, json=payload)
+response.raise_for_status()
+print(response.json()["candidates"][0]["content"]["parts"][0]["text"])
+```
+Again this is equivalent to the following curl request in shell:
 ```shell
 curl "https://generativelanguage.googleapis.com/v1beta/models/$MODEL" \
   -H "x-goog-api-key: $GEMINI_API_KEY" \
@@ -188,7 +259,31 @@ curl "https://generativelanguage.googleapis.com/v1beta/models/$MODEL" \
   }'
 ```
 
-#### `chat.send_message` (For Conversations)
+Also note that Gemini models are accessible using the `openai` library, as Google exposes the OpenAI compatible APIs. You just need to change the `base_url` to `https://generativelanguage.googleapis.com/v1beta/openai/`, use your Gemini `api_key`, and choose an actual Gemini model. 
+```python
+import os
+import openai
+from dotenv import load_dotenv
+
+load_dotenv()
+
+client = openai.OpenAI(
+  api_key=os.environ.get("GEMINI_API_KEY"),
+  base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+)
+
+user_prompt = "What is the capital of Japan?"
+messages = [{"role": "user", "content": user_prompt}]
+model="gemini-2.5-flash"
+
+response = client.chat.completions.create(
+    model=model,
+    messages=messages,
+)
+print(response.choices[0].message.content)
+```
+
+#### Method 2: `chat.send_message` (For Conversations)
 
 This method is designed for building chatbots. It creates a `ChatSession` object that automatically keeps track of the conversation history for you.
 
@@ -201,11 +296,12 @@ This method is designed for building chatbots. It creates a `ChatSession` object
 ```python
 import os
 from google import genai
+from dotenv import load_dotenv
 
 load_dotenv()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
-model="gemini-2.0-flash"
+model="gemini-2.0-flash-exp"
 
 chat = client.chats.create(model=model, history=[])
 
@@ -246,6 +342,7 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 model = "claude-3-5-sonnet-20241022"
+prompt = "What is the speed of light in a vacuum?"
 response = client.messages.create(
     model=model,
     max_tokens=1024,
@@ -261,7 +358,7 @@ curl https://api.anthropic.com/v1/messages \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "claude-3-sonnet-20240229",
+    "model": "claude-3-5-sonnet-20241022",
     "max_tokens": 1024,
     "messages": [
       {
@@ -271,6 +368,8 @@ curl https://api.anthropic.com/v1/messages \
     ]
   }'
 ```
+The API version is required in the head, and the `max_tokens` field is also mandatory.
+You can also find the version of Python function `_call_anthropic_rest` without using the `anthropic` library in `connecting.py`.
 
 ### Connecting to a Local Ollama Model
 
@@ -298,7 +397,8 @@ response = ollama.chat(
 print(response['message']['content'])
 ```
 
-Alternatively, we can interact with Ollama's API directly using the `requests` library. While the `ollama` SDK is convenient, it's useful to understand that it's just making HTTP requests under the hood. This is particularly useful if you prefer not to add the `ollama` SDK dependency or need more fine-grained control over the HTTP request.
+Alternatively, we can interact with Ollama's API directly using the `requests` library. 
+While the `ollama` SDK is convenient, it's useful to understand that it's just making HTTP requests under the hood. This is particularly useful if you prefer not to add the `ollama` SDK dependency or need more fine-grained control over the HTTP request.
 
 **How it works:**
 1.  We use the `requests` library to send an HTTP `POST` request to `http://localhost:11434/api/chat`, which is the default address for Ollama's chat endpoint.
@@ -337,10 +437,10 @@ To make subsequent requests fast, Ollama keeps the model in memory for a default
 If no new requests for that model are received within the `keep-alive` window, or upon receiving an API request to use another model on demand, Ollama automatically unloads the previous model from memory, freeing up your system's resources.
 
 
-## Step 3: Wrapping in Functions and Putting Everything Together (`llm_client.py`)
+## Step 3: Wrapping in Functions and Putting Everything Together (`connecting.py`)
 
-Create a file named `llm_client.py`, and wrap each module we discussed above as a function.
-Let's quickly recap the functions we have built in `llm_client.py`:
+Create a file named `connecting.py`, and wrap each module we discussed above as a function.
+Let's quickly recap the functions we have built in `connecting.py`:
 
 *   **`_call_openai(prompt, model)`**: Connects to OpenAI's `chat.completions.create` endpoint.
 *   **`_call_gemini(prompt, model)`**: Connects to Google Gemini using the stateless `generate_content` method.
@@ -361,18 +461,18 @@ openai_response = run_llm_call(test_prompt, "openai", "gpt-4o")
 print(f"Response: {openai_response}\n")
 
 # Gemini
-gemini_response = run_llm_call(test_prompt, "gemini", "gemini-1.5-flash")
+gemini_response = run_llm_call(test_prompt, "gemini", "gemini-2.0-flash-exp")
 print(f"Response: {gemini_response}\n")
 
 # Anthropic
-anthropic_response = run_llm_call(test_prompt, "anthropic", "claude-3-sonnet-20240229")
+anthropic_response = run_llm_call(test_prompt, "anthropic", "claude-3-5-sonnet-20241022")
 print(f"Response: {anthropic_response}\n")
 
 # Ollama (make sure Ollama is running and you have the model)
-ollama_response = run_llm_call(test_prompt, "ollama", "llama3")
+ollama_response = run_llm_call(test_prompt, "ollama", "gemma2")
 print(f"Response: {ollama_response}\n")
 ```
 
 Your script is now a complete, multi-provider LLM client! You have learned how to connect to the major cloud providers and a local model, and you understand the key differences in their API designs for both single-turn and conversational tasks.
 
-In the next tutorials, we will build upon this foundation to explore advanced topics such as **Function Calling**, the **Model-Context-Protocol (MCP)**, **Retrieval-Augmented Generation (RAG)**, and more, as we continue to build our AI Agent.
+In the next tutorials, we will build upon this foundation to explore advanced topics such as **Retrieval-Augmented Generation (RAG)**, **Function Calling**, the **Model-Context-Protocol (MCP)**,  and more, as we continue to build our AI Agent.
